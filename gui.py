@@ -5,14 +5,11 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QGroupBox, QCheckBox, QLabel, QRadioButton, QButtonGroup, QMessageBox
 )
-# FIX: Added missing QPoint import and cleaned up duplicates
+
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QRect, QPoint
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QGuiApplication
 from device_manager import get_device_detector, Monitor, AudioDevice, Webcam
 from recorder import Recorder
-
-# DevicePoller class is unchanged and can be copied from your previous version if needed.
-# SelectionOverlay class is also mostly unchanged, but needs the QPoint import to work.
 
 class SelectionOverlay(QWidget):
     """A semi-transparent overlay widget for selecting a screen area."""
@@ -23,10 +20,7 @@ class SelectionOverlay(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.CrossCursor)
-        
-        # FIX: More robust way to get full virtual desktop geometry
         self.setGeometry(QGuiApplication.primaryScreen().virtualGeometry())
-
         self.begin = None
         self.end = None
         
@@ -72,12 +66,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Multi Recorder")
         self.setGeometry(100, 100, 550, 600)
         self.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt6'))
-        # self.setStyleSheet("""
-        #     QMainWindow, QWidget { background-color: #e0e0e0; }
-        #     QGroupBox { font-weight: bold; border: 1px solid #c0c0c0; border-radius: 5px; margin-top: 10px; }
-        #     QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }
-        #     QLabel, QCheckBox, QRadioButton { color: #212121; }
-        # """)
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -240,7 +228,6 @@ class MainWindow(QMainWindow):
                         QMessageBox.warning(self, "Area Not Selected", "Please select an area to record for the chosen monitor.")
                         return None
                 
-                # For now, we only support one screen recording at a time. Return the first one found.
                 return {
                     "monitor": monitor,
                     "mode": mode,
