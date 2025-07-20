@@ -1,0 +1,22 @@
+# To install these, run: sudo apt -y install libxcb-cursor0; pip install -r requirements.txt
+# Core GUI Framework
+PyQt6
+QDarkStyle
+
+# Audio/Video Engine and System Utilities
+ffmpeg-python
+psutil
+
+# For detecting monitors
+screeninfo
+
+# Hotkeys and Scheduling (for future implementation)
+pynput
+schedule
+
+# For detecting audio devices (mics, speakers, headphones)
+sounddevice
+soundcard
+
+# For detecting webcams
+opencv-python
