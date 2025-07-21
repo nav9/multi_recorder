@@ -5,6 +5,7 @@ import datetime
 import ffmpeg
 import subprocess
 import re
+import psutil
 
 def sanitize_filename(name: str) -> str:
     """Removes invalid characters from a string to make it a valid filename."""
@@ -92,18 +93,39 @@ class Recorder:
         return self.processes
 
     def stop(self):
-        """Stops all active FFmpeg recording processes gracefully."""
+        """
+        Stops all active FFmpeg recording processes gracefully and forcefully if necessary.
+        This method is now much more robust against crashes.
+        """
+        logging.info(f"Initiating shutdown for {len(self.processes)} processes.")
         for process, task_name in self.processes:
-            if process.poll() is None: # Only try to stop running processes
-                try:
-                    process.stdin.write(b'q')
-                    process.stdin.flush()
-                    process.stdin.close()
-                    process.wait(timeout=5) # Wait for a graceful exit
-                except (OSError, subprocess.TimeoutExpired, BrokenPipeError):
-                    process.kill() # Force kill if graceful shutdown fails
-        logging.info(f"Stopped {len(self.processes)} recording processes.")
+            # First, check if the process is still running using psutil
+            try:
+                p = psutil.Process(process.pid)
+                if p.is_running():
+                    logging.info(f"Stopping process for '{task_name}' (PID: {process.pid})...")
+                    # Try to terminate gracefully first
+                    p.terminate()
+                    try:
+                        # Wait for a short period for the process to die
+                        p.wait(timeout=3)
+                        logging.info(f"Process for '{task_name}' terminated gracefully.")
+                    except psutil.TimeoutExpired:
+                        # If it doesn't die, kill it forcefully
+                        logging.warning(f"Process for '{task_name}' did not terminate gracefully. Killing forcefully.")
+                        p.kill()
+                        p.wait() # Ensure it's dead
+                else:
+                    logging.info(f"Process for '{task_name}' (PID: {process.pid}) was already stopped.")
+            except psutil.NoSuchProcess:
+                # This is a safe condition, means the process is already gone.
+                logging.warning(f"Process for '{task_name}' (PID: {process.pid}) no longer exists.")
+            except Exception as e:
+                # Catch any other potential errors during shutdown
+                logging.error(f"An unexpected error occurred while stopping process for '{task_name}': {e}")
+        
         self.processes = []
+        logging.info("All recording processes have been handled.")
 
     def _get_screen_input(self, task):
         """

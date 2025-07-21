@@ -174,8 +174,9 @@ class MainWindow(QMainWindow):
     """The main application window."""
     app_log_signal = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, global_pid_set):
         super().__init__()
+        self.global_pids = global_pid_set
         self.setWindowTitle("Multi Recorder")
         self.setGeometry(100, 100, 550, 600)
         self.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt6'))
@@ -384,7 +385,8 @@ class MainWindow(QMainWindow):
             self.set_ui_state(recording=False)
             if self.process_monitor_thread: self.process_monitor_thread.stop()
             self.reset_status_indicators()
-            self.set_ui_state(recording=False)            
+            self.set_ui_state(recording=False) 
+            self.global_pids.clear() # Clear the global list on a clean stop           
         else:
             settings = self.gather_recording_settings()
             if not settings: return
@@ -399,6 +401,9 @@ class MainWindow(QMainWindow):
 
             active_processes = self.recorder.get_active_processes()
             if active_processes:
+                # --- Populate the global PID set ---
+                for process, task_name in active_processes:
+                    self.global_pids.add(process.pid)                
                 self.build_pid_map(active_processes)
                 self.start_log_readers(active_processes)
                                 
@@ -473,6 +478,8 @@ class MainWindow(QMainWindow):
                 label.setText("<font color='red'>●</font>") # Red circle
             else: # exited_ok
                 label.setText("<font color='grey'>⚪</font>") # Grey circle
+        if status in ("exited_ok", "exited_error"):
+            self.global_pids.discard(pid)
 
     def reset_status_indicators(self):
         """Resets all status icons to the default grey circle."""
@@ -540,6 +547,10 @@ class MainWindow(QMainWindow):
         if self.is_recording: 
             self.recorder.stop()
             self.save_logs_to_file()
+        # Ensure the process monitor thread is stopped before exiting
+        if self.process_monitor_thread:
+            self.process_monitor_thread.stop()
+            self.process_monitor_thread.wait() # Wait for it to finish            
         for thread in self.log_reader_threads:
             thread.stop()        
         event.accept()    

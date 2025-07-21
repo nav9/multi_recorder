@@ -1,4 +1,6 @@
 import sys
+import atexit
+import psutil
 import logging
 import traceback
 import functools
@@ -15,6 +17,33 @@ class QtLogHandler(logging.Handler):
     def emit(self, record):
         msg = self.format(record)
         self.log_signal.emit(msg + '\n')
+
+# A global list to track all active PIDs
+# This is crucial for the atexit cleanup function
+ALL_PIDS = set()
+
+def cleanup_processes():
+    """
+    This function is registered with atexit and will be called on any exit.
+    It ensures no FFmpeg processes are left behind.
+    """
+    if not ALL_PIDS:
+        return
+        
+    logging.info(f"[ATExit Cleanup] Ensuring shutdown of {len(ALL_PIDS)} tracked PIDs.")
+    for pid in list(ALL_PIDS):
+        try:
+            p = psutil.Process(pid)
+            logging.warning(f"[ATExit Cleanup] Found orphaned process {pid}. Terminating.")
+            p.kill()
+        except psutil.NoSuchProcess:
+            # Process already ended, which is good.
+            pass
+        except Exception as e:
+            logging.error(f"[ATExit Cleanup] Error while cleaning up PID {pid}: {e}")
+
+# Register the cleanup function to be called on exit
+atexit.register(cleanup_processes)
 
 def handle_exception(exc_type, exc_value, exc_traceback, window_instance):
     """Global exception hook to catch any uncaught exceptions."""
@@ -44,9 +73,11 @@ def handle_exception(exc_type, exc_value, exc_traceback, window_instance):
     # Exit the application
     sys.exit(1)
 
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = MainWindow(ALL_PIDS)
 
     # --- Set up the global exception hook ---
     # We use functools.partial to pass the window instance to our handler

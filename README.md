@@ -6,6 +6,12 @@ Multi Recorder is a cross-platform (Windows, macOS, Linux) desktop application f
 
 The entire application is self-contained, requiring no external software installations by the end-user.
 
+# Explanation of the initial WARN and ERROR Messages
+These are harmless and are a normal part of the webcam detection process.  
+* [ WARN:0@... ] cap_v4l.cpp:997 open VIDEOIO(V4L2:/dev/video1): can't open camera by index  
+* [ ERROR:0@... ] obsensor_uvc_stream_channel.cpp:159 ... Camera index out of range  
+**Reason:** The `detect_webcams` function is designed to be robust. It doesn't know how many cameras you have, so it probes for them sequentially. It tries to open `/dev/video0`, then `/dev/video1`, then `/dev/video2`, and so on. When it tries to open an index that does not exist (like `/dev/video1` when you only have one camera at `/dev/video0`), the underlying Linux library (V4L2) and the specific device driver library (Orbbec ObSensor) correctly report "I can't find a camera at this index." The Python code sees this failure, understands there are no more cameras, and stops looking. They can be safely ignored. 
+
 ## Core Features (Planned)
 
 *   **Cross-Platform:** Works on Windows, macOS, and Linux.
