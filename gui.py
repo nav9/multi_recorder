@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.global_pids = global_pid_set
         self.setWindowTitle("Multi Recorder")
-        self.setGeometry(100, 100, 550, 600)
+        self.setGeometry(0, 0, 350, 400) #x,y,width,height
         self.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt6'))
 
         self.central_widget = QWidget()
@@ -299,20 +299,12 @@ class MainWindow(QMainWindow):
         btn_select_area.clicked.connect(lambda checked=False, mid=monitor.id: self.select_area(mid))
         rb_area.toggled.connect(btn_select_area.setVisible) # Show/hide on toggle
         
-        rb_window = QRadioButton("Select Window")
-        btn_select_window = QPushButton("Select application")
-        btn_select_window.setVisible(False) # Hide initially
-        btn_select_window.setEnabled(False) # For future implementation
-        rb_window.toggled.connect(btn_select_window.setVisible)
-        
         lbl_area_dims = QLabel("")
 
         options_layout.addWidget(rb_fullscreen)
         options_layout.addWidget(rb_area)
         options_layout.addWidget(btn_select_area)
-        options_layout.addWidget(rb_window)
-        options_layout.addWidget(btn_select_window)
-        options_layout.addStretch()
+        #options_layout.addStretch()
         options_layout.addWidget(lbl_area_dims)
 
         checkbox.toggled.connect(options_widget.setEnabled)
