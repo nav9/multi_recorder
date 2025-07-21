@@ -94,15 +94,21 @@ class Recorder:
     def stop(self):
         """Stops all active FFmpeg recording processes gracefully."""
         for process, task_name in self.processes:
-            try:
-                process.communicate(input=b'q', timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
+            if process.poll() is None: # Only try to stop running processes
+                try:
+                    process.stdin.write(b'q')
+                    process.stdin.flush()
+                    process.stdin.close()
+                    process.wait(timeout=5) # Wait for a graceful exit
+                except (OSError, subprocess.TimeoutExpired, BrokenPipeError):
+                    process.kill() # Force kill if graceful shutdown fails
         logging.info(f"Stopped {len(self.processes)} recording processes.")
         self.processes = []
 
     def _get_screen_input(self, task):
-        """Constructs the correct FFmpeg input stream for screen capture."""
+        """
+        Constructs and returns the correct FFmpeg input stream for screen capture.
+        """
         monitor = task['monitor']
         mode = task['mode']
         x, y, w, h = 0, 0, 0, 0
@@ -123,29 +129,44 @@ class Recorder:
             display = os.environ.get('DISPLAY', ':0.0')
             return ffmpeg.input(f'{display}+{x},{y}', f='x11grab', **input_options)
         elif self.system == "Darwin":
-            # Mac screen capture requires the correct device index for the screen
+            # On macOS, the monitor ID from screeninfo corresponds to the device index
+            # for avfoundation. We capture video only ('none' for audio).
             return ffmpeg.input(f'{monitor.id}:none', f='avfoundation', **input_options)
         
         raise OSError(f"Unsupported OS for screen capture: {self.system}")
 
     def _get_webcam_input(self, cam_device):
-        """Constructs the FFmpeg input stream for a webcam."""
+        """
+        Constructs and returns the FFmpeg input stream for a webcam.
+        """
         if self.system == "Windows":
-            # soundcard names don't work here, we assume a simple name for dshow
-            return ffmpeg.input(f'video=Webcam {cam_device.id}', f='dshow')
+            # On Windows, OpenCV device indices usually match dshow device names.
+            # A more robust solution might require mapping, but this is a strong default.
+            return ffmpeg.input(f'video=Webcam {cam_device.id}', f='dshow', framerate=30)
         elif self.system == "Linux":
-            return ffmpeg.input(f'/dev/video{cam_device.id}')
+            # The more specific command for V4L2 devices often prevents errors.
+            return ffmpeg.input(f'/dev/video{cam_device.id}', format='v4l2', input_format='yuyv422', framerate=30)
+        elif self.system == "Darwin":
+            # On macOS, the webcam index is used with avfoundation.
+            return ffmpeg.input(f'{cam_device.id}:none', f='avfoundation', framerate=30)
         
         raise OSError(f"Unsupported OS for webcam capture: {self.system}")
 
     def _get_audio_input(self, audio_device):
-        """Constructs the FFmpeg input stream for an audio device."""
+        """
+        Constructs and returns the FFmpeg input stream for an audio device.
+        """
         if self.system == "Windows":
-            # Use the device name as the identifier for dshow
-            return ffmpeg.input(f'audio={audio_device.name.replace("[Output] ", "").replace("[Input] ", "")}', f='dshow', ac=2)
+            # Use the full device name as the identifier for dshow
+            device_name = audio_device.name.replace("[Output] ", "").replace("[Input] ", "")
+            return ffmpeg.input(f'audio={device_name}', f='dshow', ac=2)
         elif self.system == "Linux":
-            # The device ID from soundcard is what PulseAudio needs
+            # The full device ID from soundcard is what PulseAudio needs
             return ffmpeg.input(audio_device.id, f='pulse', ac=2)
+        elif self.system == "Darwin":
+            # On macOS, avfoundation uses 'none:index' for audio-only devices
+            # where the index is from soundcard.
+            # NOTE: This assumes soundcard indices align with avfoundation indices.
+            return ffmpeg.input(f'none:{audio_device.id}', f='avfoundation', ac=2)
             
         raise OSError(f"Unsupported OS for audio capture: {self.system}")
-

@@ -20,3 +20,6 @@ soundcard
 
 # For detecting webcams
 opencv-python
+
+# System Resource Monitoring
+psutil

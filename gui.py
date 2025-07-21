@@ -1,6 +1,8 @@
 import io
-import logging
+import os
 import time
+import logging
+import psutil
 import qdarkstyle
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QGroupBox, QCheckBox, QLabel, QRadioButton, QButtonGroup, QMessageBox, QDialog, QTextEdit)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QRect, QPoint
@@ -134,6 +136,40 @@ class ProcessMonitorThread(QThread):
     def stop(self):
         self.running = False
 
+class ResourceMonitorThread(QThread):
+    """Monitors disk space and RAM, emitting a warning if they are low."""
+    low_resource_warning = pyqtSignal(str)
+
+    def __init__(self, path_to_monitor, ram_threshold_gb=0.5, disk_threshold_gb=1.0):
+        super().__init__()
+        self.running = True
+        self.path = path_to_monitor
+        self.ram_threshold = ram_threshold_gb * (1024**3)
+        self.disk_threshold = disk_threshold_gb * (1024**3)
+        self.disk_warning_sent = False
+        self.ram_warning_sent = False
+
+    def run(self):
+        while self.running:
+            # Check Disk Space
+            if not self.disk_warning_sent:
+                disk_usage = psutil.disk_usage(self.path)
+                if disk_usage.free < self.disk_threshold:
+                    self.low_resource_warning.emit(f"Disk space is critically low! Only {disk_usage.free / (1024**3):.2f} GB remaining.")
+                    self.disk_warning_sent = True # Only warn once
+            
+            # Check RAM
+            if not self.ram_warning_sent:
+                ram = psutil.virtual_memory()
+                if ram.available < self.ram_threshold:
+                    self.low_resource_warning.emit(f"Available RAM is critically low! Only {ram.available / (1024**3):.2f} GB remaining.")
+                    self.ram_warning_sent = True # Only warn once
+            
+            self.msleep(30000) # Check every 30 seconds
+
+    def stop(self):
+        self.running = False        
+
 class MainWindow(QMainWindow):
     """The main application window."""
     app_log_signal = pyqtSignal(str)
@@ -149,7 +185,7 @@ class MainWindow(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget)
         self.main_layout.setContentsMargins(5, 5, 5, 5)
         self.main_layout.setSpacing(5)
-
+        self.resource_monitor_thread = None
         self.app_log_viewer = LogViewerDialog(self)
         self.app_log_viewer.setWindowTitle("Application Logs")
         # --- Connect the new signal to the viewer's slot ---
@@ -342,6 +378,8 @@ class MainWindow(QMainWindow):
             if self.recorder: self.recorder.stop()
             for thread in self.log_reader_threads:
                 thread.stop()
+            if self.resource_monitor_thread: self.resource_monitor_thread.stop()
+            self.save_logs_to_file()                
             self.log_reader_threads = []            
             self.set_ui_state(recording=False)
             if self.process_monitor_thread: self.process_monitor_thread.stop()
@@ -363,10 +401,15 @@ class MainWindow(QMainWindow):
             if active_processes:
                 self.build_pid_map(active_processes)
                 self.start_log_readers(active_processes)
-                
+                                
                 self.process_monitor_thread = ProcessMonitorThread(active_processes)
                 self.process_monitor_thread.process_status_update.connect(self.on_process_status_update)
                 self.process_monitor_thread.start()
+                
+                # Start resource monitoring
+                self.resource_monitor_thread = ResourceMonitorThread(self.recorder.project_dir)
+                self.resource_monitor_thread.low_resource_warning.connect(self.show_low_resource_warning)
+                self.resource_monitor_thread.start()
                 
                 self.set_ui_state(recording=True)
             else:
@@ -380,6 +423,29 @@ class MainWindow(QMainWindow):
                 thread.log_line_received.connect(self.ffmpeg_log_viewer.append_log)
                 thread.start()
                 self.log_reader_threads.append(thread)
+
+    def show_low_resource_warning(self, message):
+        """Shows a non-blocking warning message about low system resources."""
+        QMessageBox.warning(self, "System Resource Warning", message)
+
+    def save_logs_to_file(self):
+        """Saves the content of the log viewers to files in the project directory."""
+        if not self.recorder or not self.recorder.project_dir or not os.path.exists(self.recorder.project_dir):
+            return
+        
+        try:
+            app_log_content = self.app_log_viewer.log_display.toPlainText()
+            ffmpeg_log_content = self.ffmpeg_log_viewer.log_display.toPlainText()
+
+            with open(os.path.join(self.recorder.project_dir, "application.log"), "w", encoding="utf-8") as f:
+                f.write(app_log_content)
+            
+            with open(os.path.join(self.recorder.project_dir, "ffmpeg_output.log"), "w", encoding="utf-8") as f:
+                f.write(ffmpeg_log_content)
+            
+            logging.info("Log files saved successfully.")
+        except Exception as e:
+            logging.error(f"Could not save log files: {e}")
 
     def build_pid_map(self, processes):
         """Creates a map from process PID to the corresponding UI status label."""
@@ -471,7 +537,9 @@ class MainWindow(QMainWindow):
                 child.widget().deleteLater()
     
     def closeEvent(self, event):
-        if self.is_recording: self.recorder.stop()
+        if self.is_recording: 
+            self.recorder.stop()
+            self.save_logs_to_file()
         for thread in self.log_reader_threads:
             thread.stop()        
         event.accept()    
